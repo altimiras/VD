@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Mis Videos</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --card:#181818;
+    --text:#f1f1f1;
+    --muted:#aaaaaa;
+    --accent:#ff0000;
+    --border:#303030;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:Roboto,Arial,sans-serif;-webkit-tap-highlight-color:transparent;}
+  #app{max-width:640px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+
+  /* Header */
+  header{position:sticky;top:0;z-index:20;background:var(--bg);padding:10px 12px;border-bottom:1px solid var(--border);}
+  header h1{margin:0 0 8px 0;font-size:18px;font-weight:600;display:flex;align-items:center;gap:8px;}
+  header h1 .dot{width:10px;height:10px;background:var(--accent);border-radius:50%;display:inline-block;}
+  .searchbar{display:flex;gap:6px;}
+  .searchbar input{flex:1;background:#222;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:20px;font-size:14px;outline:none;}
+  .searchbar input:focus{border-color:var(--accent);}
+  .counter{font-size:12px;color:var(--muted);margin-top:6px;}
+
+  /* Diagnostics */
+  #diag{margin:10px 12px;padding:10px 12px;background:#251515;border:1px solid #5a2323;border-radius:8px;font-size:13px;color:#ffb3b3;display:none;}
+  #diag.show{display:block;}
+  #diag button{margin-top:8px;background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:13px;}
+  #diagToggle{font-size:11px;color:var(--muted);text-decoration:underline;margin-left:8px;cursor:pointer;}
+
+  /* List */
+  #list{padding:8px 0 30px 0;flex:1;}
+  .item{display:flex;flex-direction:column;padding:8px 12px;cursor:pointer;}
+  .thumbwrap{position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;}
+  .thumbwrap img{width:100%;height:100%;object-fit:cover;display:block;}
+  .duration{position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,.8);color:#fff;font-size:11px;padding:2px 5px;border-radius:3px;}
+  .meta{display:flex;gap:10px;margin-top:8px;}
+  .meta .icon{width:34px;height:34px;border-radius:50%;background:var(--accent);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;}
+  .title{font-size:14.5px;line-height:1.3;font-weight:500;color:var(--text);}
+  .sub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .empty{text-align:center;color:var(--muted);padding:40px 20px;font-size:14px;}
+
+  /* Player view */
+  #playerView{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column;}
+  #playerView.show{display:flex;}
+  .playerFrameWrap{position:relative;width:100%;background:#000;}
+  .playerFrameWrap iframe{width:100%;height:100%;border:0;display:block;}
+  .backbar{position:absolute;top:8px;left:8px;z-index:5;}
+  .backbar button{background:rgba(0,0,0,.55);color:#fff;border:none;width:38px;height:38px;border-radius:50%;font-size:18px;}
+  .playerInfo{padding:14px 16px;overflow-y:auto;}
+  .playerInfo h2{font-size:16px;margin:0 0 6px 0;font-weight:600;}
+  .playerInfo p{font-size:12px;color:var(--muted);margin:0;}
+  .openYT{display:inline-block;margin-top:14px;color:var(--accent);font-size:13px;text-decoration:none;border:1px solid var(--accent);padding:8px 14px;border-radius:20px;}
+
+  #fileFallback{display:none;text-align:center;padding:20px;}
+  #fileFallback.show{display:block;}
+  #fileFallback input{display:none;}
+  #fileFallback label{background:var(--accent);color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;display:inline-block;cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <h1><span class="dot"></span>Mis Videos</h1>
+    <div class="searchbar">
+      <input type="text" id="searchInput" placeholder="Buscar por título...">
+    </div>
+    <div class="counter" id="counter">Cargando videos.txt...</div>
+  </header>
+
+  <div id="diag">
+    <span id="diagMsg"></span>
+    <span id="diagToggle" onclick="document.getElementById('fileFallback').classList.toggle('show')">seleccionar archivo manualmente</span>
+    <div id="fileFallback">
+      <label for="fileInput">📂 Elegir videos.txt</label>
+      <input type="file" id="fileInput" accept=".txt">
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+  <div id="playerView">
+    <div class="backbar"><button onclick="closePlayer()">✕</button></div>
+    <div class="playerFrameWrap" id="frameWrap"></div>
+    <div class="playerInfo">
+      <h2 id="playerTitle"></h2>
+      <p id="playerId"></p>
+      <a href="#" target="_blank" id="openYT" class="openYT">Abrir en YouTube ▶</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let allVideos = [];
+
+function extractVideoId(url){
+  try{
+    const u = new URL(url.trim());
+    if(u.searchParams.get('v')) return u.searchParams.get('v');
+    if(u.hostname.includes('youtu.be')) return u.pathname.replace('/','');
+    const shorts = u.pathname.match(/\/shorts\/([^\/?]+)/);
+    if(shorts) return shorts[1];
+  }catch(e){}
+  return null;
+}
+
+function parseData(text){
+  const lines = text.split(/\r?\n/);
+  const out = [];
+  let skipped = 0;
+  lines.forEach(line=>{
+    if(!line.trim()) return;
+    const idx = line.indexOf('|');
+    if(idx === -1){ skipped++; return; }
+    const url = line.slice(0, idx).trim();
+    const title = line.slice(idx+1).trim();
+    const id = extractVideoId(url);
+    if(!id){ skipped++; return; }
+    out.push({id, title: title || 'Sin título', url});
+  });
+  return {out, skipped};
+}
+
+function render(list){
+  const container = document.getElementById('list');
+  if(list.length === 0){
+    container.innerHTML = '<div class="empty">No se encontraron videos.</div>';
+    return;
+  }
+  container.innerHTML = list.map((v, i)=>`
+    <div class="item" onclick="openPlayer(${allVideos.indexOf(v)})">
+      <div class="thumbwrap">
+        <img loading="lazy" src="https://i.ytimg.com/vi/${v.id}/hqdefault.jpg" alt="">
+      </div>
+      <div class="meta">
+        <div class="icon">▶</div>
+        <div>
+          <div class="title">${escapeHtml(v.title)}</div>
+          <div class="sub">YouTube</div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function openPlayer(index){
+  const v = allVideos[index];
+  if(!v) return;
+  document.getElementById('frameWrap').innerHTML =
+    `<iframe src="https://www.youtube.com/embed/${v.id}?autoplay=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen style="aspect-ratio:16/9;"></iframe>`;
+  document.getElementById('playerTitle').textContent = v.title;
+  document.getElementById('playerId').textContent = 'ID: ' + v.id;
+  document.getElementById('openYT').href = v.url;
+  document.getElementById('playerView').classList.add('show');
+}
+
+function closePlayer(){
+  document.getElementById('playerView').classList.remove('show');
+  document.getElementById('frameWrap').innerHTML = '';
+}
+
+function applyFilter(){
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const filtered = q ? allVideos.filter(v=>v.title.toLowerCase().includes(q)) : allVideos;
+  render(filtered);
+}
+
+function finishLoad(text, sourceLabel){
+  const {out, skipped} = parseData(text);
+  allVideos = out;
+  document.getElementById('counter').textContent =
+    `${out.length} video${out.length===1?'':'s'} cargados (${sourceLabel})` + (skipped ? ` — ${skipped} línea(s) ignorada(s)` : '');
+  render(allVideos);
+  document.getElementById('diag').classList.remove('show');
+}
+
+function showDiag(msg){
+  document.getElementById('diagMsg').textContent = msg;
+  document.getElementById('diag').classList.add('show');
+  document.getElementById('counter').textContent = 'No se pudieron cargar los videos automáticamente.';
+}
+
+// Intento de carga automática desde videos.txt (misma carpeta)
+fetch('videos.txt', {cache:'no-store'})
+  .then(r=>{
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  })
+  .then(text=> finishLoad(text, 'automático'))
+  .catch(err=>{
+    showDiag('No se pudo leer videos.txt automáticamente (' + err.message + '). Esto es normal si abriste el archivo directamente desde el almacenamiento sin subirlo a un servidor/GitHub Pages.');
+  });
+
+document.getElementById('searchInput').addEventListener('input', applyFilter);
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    finishLoad(ev.target.result, 'archivo local: ' + file.name);
+  };
+  reader.onerror = function(){
+    showDiag('Error al leer el archivo seleccionado.');
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
